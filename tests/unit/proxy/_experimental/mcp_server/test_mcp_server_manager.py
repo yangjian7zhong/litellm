@@ -18730,16 +18730,40 @@ async def test_catalog_failed_openapi_row_does_not_publish_partial_handlers(monk
 
 
 @pytest.mark.asyncio
-async def test_catalog_unchanged_read_preserves_derived_initialize_instructions(monkeypatch):
-    read_rows = AsyncMock(return_value=[_catalog_row()])
+@pytest.mark.parametrize("full_reload", [False, True], ids=["request_path_refresh", "scheduled_reload"])
+async def test_catalog_refresh_drops_initialize_instructions_only_for_changed_servers(
+    monkeypatch: pytest.MonkeyPatch, full_reload: bool
+):
+    def row(server_id: str, updated_day: int) -> LiteLLM_MCPServerTable:
+        return LiteLLM_MCPServerTable(
+            server_id=server_id,
+            server_name=server_id,
+            transport=MCPTransport.http,
+            url=f"https://{server_id}.example/mcp",
+            created_at=datetime(2026, 1, 1),
+            updated_at=datetime(2026, 1, updated_day),
+        )
+
+    read_rows: Final = AsyncMock(return_value=[row("unchanged", 1), row("edited", 1), row("deleted", 1)])
     _catalog_database(monkeypatch, read_rows)
-    manager = MCPServerManager()
+    manager: Final = MCPServerManager()
     await manager.catalog.list()
-    manager._upstream_initialize_instructions_by_server_id = {"catalog-server": "cached instructions"}
-    manager._upstream_initialize_instructions_probed_at = {"catalog-server": 123.0}
-    await manager.catalog.list()
-    assert manager._upstream_initialize_instructions_by_server_id == {"catalog-server": "cached instructions"}
-    assert manager._upstream_initialize_instructions_probed_at == {"catalog-server": 123.0}
+    manager._upstream_initialize_instructions_by_server_id = {
+        "unchanged": "unchanged text",
+        "edited": "stale edited text",
+        "deleted": "stale deleted text",
+        "not-in-db": "config server text",
+    }
+    manager._upstream_initialize_instructions_probed_at = {"unchanged": 1.0, "edited": 2.0, "deleted": 3.0}
+    read_rows.return_value = [row("unchanged", 1), row("edited", 2)]
+
+    await (manager.reload_servers_from_database() if full_reload else manager.catalog.list())
+
+    assert manager._upstream_initialize_instructions_by_server_id == {
+        "unchanged": "unchanged text",
+        "not-in-db": "config server text",
+    }
+    assert manager._upstream_initialize_instructions_probed_at == {"unchanged": 1.0}
 
 
 @pytest.mark.asyncio

@@ -4650,10 +4650,6 @@ class MCPServerManager:
             )
             raise_classified_list_failure(e, server.name, suppress_challenge=server.is_dcr_bridge)
 
-    def clear_initialize_instructions(self) -> None:
-        self._upstream_initialize_instructions_by_server_id.clear()
-        self._upstream_initialize_instructions_probed_at.clear()
-
     def invalidate_discovery_lists(self, server_id: str) -> None:
         self._upstream_initialize_instructions_by_server_id.pop(server_id, None)
         self._upstream_initialize_instructions_probed_at.pop(server_id, None)
